@@ -233,6 +233,17 @@ class ConfigurationConnectionsTest < Test::Unit::TestCase
     assert_equal %w(cap1 cap2 cap3), @config.sessions.keys.sort.map { |s| s.host }
   end
 
+  def test_execute_on_servers_with_many_servers
+    assert @config.sessions.empty?
+    @config.current_task = mock_task
+    server_names = 128.times.map {|i| "cap#{i}" }
+    Capistrano::SSH.stubs(:connect).returns(:success)
+    @config.establish_connections_to(server_names.map { |sn| server(sn) })
+    assert_equal server_names.length, @config.sessions.length
+    assert_equal server_names.sort, @config.sessions.keys.map(&:host).sort
+    assert !@config.sessions.values.any?(&:nil?)
+  end
+
   def test_execute_on_servers_should_yield_server_list_to_block
     assert @config.sessions.empty?
     @config.current_task = mock_task
