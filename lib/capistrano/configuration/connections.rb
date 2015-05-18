@@ -117,15 +117,23 @@ module Capistrano
 
       # Ensures that there are active sessions for each server in the list.
       def establish_connections_to(servers)
-        failed_servers = []
-
         # force the connection factory to be instantiated synchronously,
         # otherwise we wind up with multiple gateway instances, because
         # each connection is done in parallel.
         connection_factory
 
-        threads = Array(servers).map { |server| establish_connection_to(server, failed_servers) }
+        mutex = Mutex.new # protects modifications of created_session and failed_servers in the connection threads
+        created_sessions = {}
+        failed_servers = []
+
+        threads = Array(servers).select {|s| !sessions.has_key?(s) }.map do |server|
+          establish_connection_to(server, mutex, created_sessions, failed_servers)
+        end
         threads.each { |t| t.join }
+
+        created_sessions.each do |server, session|
+          sessions[server] ||= session
+        end
 
         if failed_servers.any?
           errors = failed_servers.map { |h| "#{h[:server]} (#{h[:error].class}: #{h[:error].message})" }
@@ -220,17 +228,19 @@ module Capistrano
         # We establish the connection by creating a thread in a new method--this
         # prevents problems with the thread's scope seeing the wrong 'server'
         # variable if the thread just happens to take too long to start up.
-        def establish_connection_to(server, failures=nil)
-          current_thread = Thread.current
-          Thread.new { safely_establish_connection_to(server, current_thread, failures) }
+        def establish_connection_to(server, mutex, sessions_out, failures_out)
+          Thread.new { safely_establish_connection_to(server, mutex, sessions_out, failures_out) }
         end
 
-        def safely_establish_connection_to(server, thread, failures=nil)
-          thread[:sessions] ||= {}
-          thread[:sessions][server] ||= connection_factory.connect_to(server)
+        def safely_establish_connection_to(server, mutex, sessions_out, failures_out)
+          connection = connection_factory.connect_to(server)
+          mutex.synchronize do
+            sessions_out[server] ||= connection
+          end
         rescue Exception => err
-          raise unless failures
-          failures << { :server => server, :error => err }
+          mutex.synchronize do
+            failures_out << { :server => server, :error => err }
+          end
         end
     end
   end
