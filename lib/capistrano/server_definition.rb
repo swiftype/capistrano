@@ -9,7 +9,7 @@ module Capistrano
 
     # The default user name to use when a user name is not explicitly provided
     def self.default_user
-      ENV['USER'] || ENV['USERNAME'] || "not-specified"
+      ENV['CAP_USER'] || ENV['USER'] || ENV['USERNAME'] || "not-specified"
     end
 
     def initialize(string, options={})
